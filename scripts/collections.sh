@@ -28,7 +28,7 @@ usage() {
 }
 
 get_namespaces() {
-  kubectl get namespace -o jsonpath="{..name}" |\
+  oc get namespace -o jsonpath="{..name}" |\
   tr -s '[[:space:]]' '\n' |\
   sort |\
   uniq -c |\
@@ -36,7 +36,15 @@ get_namespaces() {
 }
 
 get_collections_names() {
-  curl -s -k -u "${PCC_USER}:${PCC_USER_PW}" -H 'Content-Type: application/json' "${PCC_CONSOLE_API}/${api_path}" |\
+  curl -s -k -u "${PCC_USER}:${PCC_USER_PW}" -H 'Content-Type: application/json' "${PCC_CONSOLE_API}/collections" |\
+  tr ',' '\n' |\
+  sed 's/"//g' |\
+  grep -i 'name:' |\
+  cut -f2 -d:
+}
+
+get_group_names() {
+  curl -s -k -u "${PCC_USER}:${PCC_USER_PW}" -H 'Content-Type: application/json' "${PCC_CONSOLE_API}/groups" |\
   tr ',' '\n' |\
   sed 's/"//g' |\
   grep -i 'name:' |\
@@ -79,8 +87,6 @@ if [[ "${arg_err}X" != X ]]; then
    exit 2
 fi
 
-PCC_USER_PW="MyDemo123#"
-
 if [[ "${PCC_USER_PW}" == NONE ]]; then
    read -s -p "enter password for ${PCC_USER}: " PCC_USER_PW
 fi
@@ -106,47 +112,96 @@ echo "Found Collections:"
 echo "$COLLECTIONS"
 echo "----------------------------"
 echo ""
+# Get all LDAP Groups configured for authenticate inside the Prisma Cloud Compute Console
+LDAPGROUPS=$(get_group_names)
+echo "----------------------------"
+echo "Found configured LDAP GROUPS:"
+echo "$LDAPGROUPS"
+echo "----------------------------"
+echo ""
 
 # For each Namspace check if a collection for it existis within Prisma Cloud Compute
 # If Not, create a collection with filter on REGISTRY/NAMESPACE/* for Images
 # If Yes, do nothing
+# Check for each Namespace if the LDAP Group was configured to be able to authenticate
+
 echo "----------------------------"
 echo "Creating Missing Collections:"
 for namespace in $NAMESPACES
 do
- collection_exists=false
- for collection in $COLLECTIONS
- do
-  if [ "$collection" == "$namespace" ]
-  then
-   collection_exists=true
-  fi
- done
- if [ "$collection_exists" == true ]
+ # Filter out the System namesaces used in Openshift. Namespaces starting with openshift, kube or are equal to default or cluster
+ if [[ $namespace == openshift* ]] || [[ $namespace == kube* ]] || [[ $namespace == default ]] || [[ $namespace == cluster ]] ;
  then
-   echo "Collection for Namespace $namespace already exists. Doing nothing..."
+   echo "Kubernetes and Openshift System Namespace $namespace will be skipped..."
  else
-   echo "Collection for Namespace $namespace doesn't exist. Creating it..."
-   http_req_method="POST"
-   curl -s -k -u "${PCC_USER}:${PCC_USER_PW}" \
-    -X "${http_req_method}" \
-    -H 'Content-Type: application/json' \
-    -d "{ \
-    \"name\":\"${namespace}\", \
-    \"color\":\"#ff0000\", \
-    \"description\": \
-    \"A collection for images within namespace ${namespace}\", \
-    \"images\":[\"${REGISTRY}/${namespace}/*\"], \
-    \"hosts\":[\"*\"], \
-    \"services\":[\"*\"], \
-    \"appIDs\":[\"*\"], \
-    \"accountIDs\":[\"*\"], \
-    \"hosts\":[\"*\"], \
-    \"containers\":[\"*\"], \
-    \"labels\":[\"*\"], \
-    \"functions\":[\"*\"], \
-    \"namespaces\":[\"*\"]}" \
-    "${PCC_CONSOLE_API}/${api_path}"
-  fi
+   collection_exists=false
+   for collection in $COLLECTIONS
+   do
+     if [ "$collection" == "$namespace" ]
+     then
+       collection_exists=true
+     fi
+   done
+   if [ "$collection_exists" == true ]
+   then
+     echo "Collection for Namespace $namespace already exists. Doing nothing..."
+   else
+     echo "Collection for Namespace $namespace doesn't exist. Creating it..."
+     http_req_method="POST"
+     curl -s -k -u "${PCC_USER}:${PCC_USER_PW}" \
+     -X "${http_req_method}" \
+     -H 'Content-Type: application/json' \
+     -d "{ \
+     \"name\":\"${namespace}\", \
+     \"color\":\"#ff0000\", \
+     \"description\": \
+     \"A collection for images within namespace ${namespace}\", \
+     \"images\":[\"${REGISTRY}/${namespace}/*\"], \
+     \"hosts\":[\"*\"], \
+     \"services\":[\"*\"], \
+     \"appIDs\":[\"*\"], \
+     \"accountIDs\":[\"*\"], \
+     \"hosts\":[\"*\"], \
+     \"containers\":[\"*\"], \
+     \"labels\":[\"*\"], \
+     \"functions\":[\"*\"], \
+     \"namespaces\":[\"*\"]}" \
+     "${PCC_CONSOLE_API}/collections"
+   fi
+   echo "----------------------------"
+   echo ""
+   echo "----------------------------"
+   echo "Creating Missing LDAP Groups:"
+   group_devsecops_exists=false
+   group_devsecops_search="project-$namespace-devsecops"
+   echo "Searching if Group $group_devsecops_search exists..."
+   group_devops_exists=false
+   group_devops_search="project-$namespace-devops"
+   echo "Searching if Group $group_devops_search exists..."
+   for groups in $LDAPGROUPS
+   do
+     if [ "$groups" == "$group_devsecops_search" ]
+     then
+       group_devsecops_exists=true
+     fi
+     if [ "$groups" == "$group_devops_search" ]
+     then
+       group_devops_exists=true
+     fi
+   done
+   if [ "$group_devsecops_exists" == true ]
+   then
+     echo "LDAP Group $group_devsecops_search for Namespace $namespace already exists. Doing nothing..."
+   else
+     echo "LDAP Group $group_devsecops_search for Namespace $namespace doesn't exist. Creating it..."
+   fi
+   if [ "$group_devops_exists" == true ]
+   then
+     echo "LDAP Group $group_devops_search for Namespace $namespace already exists. Doing nothing..."
+   else
+     echo "LDAP Group $group_devops_search for Namespace $namespace doesn't exist. Creating it..."
+     http_req_method="POST"
+   fi
+ fi
 done
 echo "----------------------------"
