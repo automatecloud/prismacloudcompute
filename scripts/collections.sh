@@ -194,6 +194,17 @@ do
      echo "LDAP Group $group_devsecops_search for Namespace $namespace already exists. Doing nothing..."
    else
      echo "LDAP Group $group_devsecops_search for Namespace $namespace doesn't exist. Creating it..."
+     http_req_method="POST"
+     curl -s -k -u "${PCC_USER}:${PCC_USER_PW}" \
+     -X "${http_req_method}" \
+     -H 'Content-Type: application/json' \
+     -d "{ \
+     \"groupName\":\"${group_devsecops_search}\", \
+     \"ldapGroup\":true, \
+     \"samlGroup\":false, \
+     \"role\":\"devSecOps\", \
+     \"permissions\":[{\"project\":\"Central Console\",\"collections\":[\"${namespace}\"]}]}" \
+     "${PCC_CONSOLE_API}/groups"
    fi
    if [ "$group_devops_exists" == true ]
    then
@@ -201,6 +212,16 @@ do
    else
      echo "LDAP Group $group_devops_search for Namespace $namespace doesn't exist. Creating it..."
      http_req_method="POST"
+     curl -s -k -u "${PCC_USER}:${PCC_USER_PW}" \
+     -X "${http_req_method}" \
+     -H 'Content-Type: application/json' \
+     -d "{ \
+     \"groupName\":\"${group_devops_search}\", \
+     \"ldapGroup\":true, \
+     \"samlGroup\":false, \
+     \"role\":\"devOps\", \
+     \"permissions\":[{\"project\":\"Central Console\",\"collections\":[\"${namespace}\"]}]}" \
+     "${PCC_CONSOLE_API}/groups"
    fi
  fi
 done
